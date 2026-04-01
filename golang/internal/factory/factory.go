@@ -5,7 +5,7 @@ import (
 )
 
 func CreateQueueMiddleware(queueName string, connectionSettings m.ConnSettings) (m.Middleware, error) {
-	return nil, nil
+	return CreateQueue(queueName, connectionSettings.Hostname, connectionSettings.Port)
 }
 
 func CreateExchangeMiddleware(exchange string, keys []string, connectionSettings m.ConnSettings) (m.Middleware, error) {
