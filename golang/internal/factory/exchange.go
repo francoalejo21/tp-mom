@@ -12,9 +12,10 @@ type Exchange struct {
 	queueName string
 	ch        *amqp.Channel
 	conn      *amqp.Connection
+	keys      []string
 }
 
-func CreateExchange(exchangeName string, host string, port int) (m.Middleware, error) {
+func CreateExchange(exchangeName string, host string, port int, keys []string) (m.Middleware, error) {
 	portToConnect := strconv.Itoa(port)
 	conn, err := amqp.Dial("amqp://guest:guest@" + host + ":" + portToConnect + "/")
 	if err != nil {
@@ -28,7 +29,7 @@ func CreateExchange(exchangeName string, host string, port int) (m.Middleware, e
 
 	err = ch.ExchangeDeclare(
 		exchangeName, // name
-		"fanout",     // type
+		"direct",     // type
 		false,        // durability
 		false,        // auto-deleted
 		false,        // internal
@@ -49,18 +50,16 @@ func CreateExchange(exchangeName string, host string, port int) (m.Middleware, e
 	if err != nil {
 		return nil, m.ErrMessageMiddlewareDisconnected
 	}
-
-	err = ch.QueueBind(
-		q.Name,       // queue name
-		"",           // routing key
-		exchangeName, // exchange
-		false,
-		nil,
-	)
+	for _, key := range keys {
+		err = ch.QueueBind(q.Name, key, exchangeName, false, nil)
+		if err != nil {
+			return nil, m.ErrMessageMiddlewareMessage
+		}
+	}
 	if err != nil {
 		return nil, m.ErrMessageMiddlewareDisconnected
 	}
-	return Exchange{exchangeName, q.Name, ch, conn}, nil
+	return Exchange{exchangeName, q.Name, ch, conn, keys}, nil
 }
 
 // Comienza a escuchar a la cola/exchange e invoca a callbackFunc tras
@@ -124,17 +123,23 @@ func (e Exchange) StopConsuming() error {
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareMessage.
 func (e Exchange) Send(msg m.Message) (err error) {
-	err = e.ch.Publish(
-		e.name, // exchange
-		"",     // routing key
-		false,  // mandatory
-		false,  // immediate
-		amqp.Publishing{
-			ContentType: "text/plain",
-			Body:        []byte(msg.Body),
-		})
-	if err != nil {
-		return m.ErrMessageMiddlewareDisconnected
+	for _, key := range e.keys {
+		err = e.ch.Publish(
+			e.name, // exchange
+			key,    // routing key
+			false,  // mandatory
+			false,  // immediate
+			amqp.Publishing{
+				ContentType: "text/plain",
+				Body:        []byte(msg.Body),
+			})
+
+		if err != nil {
+			if e.conn.IsClosed() {
+				return m.ErrMessageMiddlewareDisconnected
+			}
+			return m.ErrMessageMiddlewareMessage
+		}
 	}
 	return nil
 }
