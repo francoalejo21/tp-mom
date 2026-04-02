@@ -8,6 +8,6 @@ func CreateQueueMiddleware(queueName string, connectionSettings m.ConnSettings) 
 	return CreateQueue(queueName, connectionSettings.Hostname, connectionSettings.Port)
 }
 
-func CreateExchangeMiddleware(exchange string, keys []string, connectionSettings m.ConnSettings) (m.Middleware, error) {
-	return nil, nil
+func CreateExchangeMiddleware(exchangeName string, keys []string, connectionSettings m.ConnSettings) (m.Middleware, error) {
+	return CreateExchange(exchangeName, connectionSettings.Hostname, connectionSettings.Port)
 }
