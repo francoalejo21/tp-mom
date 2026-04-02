@@ -12,6 +12,7 @@ type Queue struct {
 	name  string
 	queue amqp.Queue
 	ch    *amqp.Channel
+	conn  *amqp.Connection
 }
 
 func CreateQueue(queueName string, host string, port int) (m.Middleware, error) {
@@ -31,12 +32,12 @@ func CreateQueue(queueName string, host string, port int) (m.Middleware, error) 
 		false,     // delete when unused
 		false,     // exclusive
 		false,     // no-wait
-		amqp.Table{
-			amqp.QueueTypeArg: amqp.QueueTypeQuorum,
-		},
+		nil,
 	)
-	failOnError(err, "Failed to declare a queue")
-	return Queue{queueName, q, ch}, nil
+	if err != nil {
+		return nil, m.ErrMessageMiddlewareMessage
+	}
+	return Queue{queueName, q, ch, conn}, nil
 }
 
 func failOnError(err error, msg string) {
@@ -125,6 +126,10 @@ func (q Queue) Send(msg m.Message) (err error) {
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareClose.
 func (q Queue) Close() error {
 	err := q.ch.Close()
+	if err != nil {
+		return m.ErrMessageMiddlewareClose
+	}
+	err = q.conn.Close()
 	if err != nil {
 		return m.ErrMessageMiddlewareClose
 	}

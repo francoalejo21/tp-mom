@@ -11,6 +11,7 @@ type Exchange struct {
 	name      string
 	queueName string
 	ch        *amqp.Channel
+	conn      *amqp.Connection
 }
 
 func CreateExchange(exchangeName string, host string, port int) (m.Middleware, error) {
@@ -59,7 +60,7 @@ func CreateExchange(exchangeName string, host string, port int) (m.Middleware, e
 	if err != nil {
 		return nil, m.ErrMessageMiddlewareDisconnected
 	}
-	return Exchange{exchangeName, q.Name, ch}, nil
+	return Exchange{exchangeName, q.Name, ch, conn}, nil
 }
 
 // Comienza a escuchar a la cola/exchange e invoca a callbackFunc tras
@@ -142,6 +143,10 @@ func (e Exchange) Send(msg m.Message) (err error) {
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareClose.
 func (e Exchange) Close() error {
 	err := e.ch.Close()
+	if err != nil {
+		return m.ErrMessageMiddlewareClose
+	}
+	err = e.conn.Close()
 	if err != nil {
 		return m.ErrMessageMiddlewareClose
 	}
