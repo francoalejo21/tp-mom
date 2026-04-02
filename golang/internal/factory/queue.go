@@ -45,22 +45,80 @@ func failOnError(err error, msg string) {
 	}
 }
 
+// Comienza a escuchar a la cola/exchange e invoca a callbackFunc tras
+// cada mensaje de datos o de control con el cuerpo del mensaje.
+// callbackFunc tiene como parámetro:
+// msg - El struct tal y como lo recibe el método Send.
+// ack - Una función que hace ACK del mensaje recibido.
+// nack - Una función que hace NACK del mensaje recibido.
+// Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
+// Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareMessage.
 func (q Queue) StartConsuming(callbackFunc func(msg m.Message, ack func(), nack func())) (err error) {
-	return
+
+	mesagges, err := q.ch.Consume(
+		q.name,
+		"",    // consumer
+		false, // auto-ack
+		false, // exclusive
+		false, // no-local
+		false, // no-wait
+		nil,   // args
+	)
+	if err != nil {
+		return m.ErrMessageMiddlewareDisconnected
+	}
+	for message := range mesagges {
+		errComunication := false
+		callbackFunc(
+			m.Message{Body: string(message.Body)},
+			func() {
+				err := message.Ack(false)
+				if err != nil {
+					errComunication = true
+				}
+			},
+			func() {
+				err := message.Nack(false, false)
+				if err != nil {
+					errComunication = true
+				}
+			},
+		)
+		if errComunication {
+			return m.ErrMessageMiddlewareMessage
+		}
+	}
+	return nil
 }
 
 // Si se estaba consumiendo desde la cola/exchange, se detiene la escucha. Si
 // no se estaba consumiendo de la cola/exchange, no tiene efecto, ni levanta
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
-func (q Queue) StopConsuming() {
-
+func (q Queue) StopConsuming() error {
+	err := q.ch.Cancel(q.name, true)
+	if err != nil {
+		return m.ErrMessageMiddlewareDisconnected
+	}
+	return nil
 }
 
 // Envía un mensaje a la cola o a los tópicos con el que se inicializó el exchange.
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareMessage.
 func (q Queue) Send(msg m.Message) (err error) {
-	return
+	err = q.ch.Publish(
+		"",     // exchange
+		q.name, // routing key
+		false,  // mandatory
+		false,  // immediate
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body:        []byte(msg.Body),
+		})
+	if err != nil {
+		return m.ErrMessageMiddlewareDisconnected
+	}
+	return nil
 }
 
 // Se desconecta de la cola o exchange al que estaba conectado.
