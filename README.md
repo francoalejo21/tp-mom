@@ -39,3 +39,9 @@ Instalar los dependencias de la suite de pruebas:
 Instalar una versión de Golang superior a `1.24`.
 Instalar los dependencias de la suite de pruebas:
 `go mod download`
+
+### Entrega
+
+Se cumplió con la resolución y se puede observar que pasan las pruebas
+
+![pasan las pruebas](./img/image.png)
