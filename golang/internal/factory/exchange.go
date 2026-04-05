@@ -74,12 +74,12 @@ func (e Exchange) StartConsuming(callbackFunc func(msg m.Message, ack func(), na
 
 	mesagges, err := e.ch.Consume(
 		e.queueName,
-		"",    // consumer
-		false, // auto-ack
-		false, // exclusive
-		false, // no-local
-		false, // no-wait
-		nil,   // args
+		e.queueName, // consumer
+		false,       // auto-ack
+		false,       // exclusive
+		false,       // no-local
+		false,       // no-wait
+		nil,         // args
 	)
 	if err != nil {
 		return m.ErrMessageMiddlewareDisconnected
@@ -105,6 +105,9 @@ func (e Exchange) StartConsuming(callbackFunc func(msg m.Message, ack func(), na
 			return m.ErrMessageMiddlewareMessage
 		}
 	}
+	if e.conn.IsClosed() {
+		return m.ErrMessageMiddlewareDisconnected
+	}
 	return nil
 }
 
@@ -112,9 +115,11 @@ func (e Exchange) StartConsuming(callbackFunc func(msg m.Message, ack func(), na
 // no se estaba consumiendo de la cola/exchange, no tiene efecto, ni levanta
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
 func (e Exchange) StopConsuming() error {
-	err := e.ch.Cancel(e.name, false)
+	err := e.ch.Cancel(e.queueName, false)
 	if err != nil {
-		return m.ErrMessageMiddlewareDisconnected
+		if e.conn.IsClosed() {
+			return m.ErrMessageMiddlewareDisconnected
+		}
 	}
 	return nil
 }
@@ -147,12 +152,10 @@ func (e Exchange) Send(msg m.Message) (err error) {
 // Se desconecta de la cola o exchange al que estaba conectado.
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareClose.
 func (e Exchange) Close() error {
-	err := e.ch.Close()
-	if err != nil {
-		return m.ErrMessageMiddlewareClose
-	}
-	err = e.conn.Close()
-	if err != nil {
+	errChan := e.ch.Close()
+	errConn := e.conn.Close()
+
+	if errChan != nil || errConn != nil {
 		return m.ErrMessageMiddlewareClose
 	}
 	return nil

@@ -1,7 +1,6 @@
 package factory
 
 import (
-	"log"
 	"strconv"
 
 	m "github.com/7574-sistemas-distribuidos/tp-mom/golang/internal/middleware"
@@ -19,12 +18,17 @@ func CreateQueue(queueName string, host string, port int) (m.Middleware, error) 
 
 	portToConnect := strconv.Itoa(port)
 	conn, err := amqp.Dial("amqp://guest:guest@" + host + ":" + portToConnect + "/")
-	failOnError(err, "Failed to connect to RabbitMQ")
-	// defer conn.Close()
+	if err != nil {
+		return nil, m.ErrMessageMiddlewareDisconnected
+	}
 
 	ch, err := conn.Channel()
-	failOnError(err, "Failed to open a channel")
-	// defer ch.Close()
+	if err != nil {
+		if conn != nil {
+			conn.Close()
+		}
+		return nil, m.ErrMessageMiddlewareMessage
+	}
 
 	q, err := ch.QueueDeclare(
 		queueName, // name
@@ -35,15 +39,12 @@ func CreateQueue(queueName string, host string, port int) (m.Middleware, error) 
 		nil,
 	)
 	if err != nil {
+		if conn != nil {
+			conn.Close()
+		}
 		return nil, m.ErrMessageMiddlewareMessage
 	}
 	return Queue{queueName, q, ch, conn}, nil
-}
-
-func failOnError(err error, msg string) {
-	if err != nil {
-		log.Panicf("%s: %s", msg, err)
-	}
 }
 
 // Comienza a escuchar a la cola/exchange e invoca a callbackFunc tras
@@ -58,14 +59,17 @@ func (q Queue) StartConsuming(callbackFunc func(msg m.Message, ack func(), nack 
 
 	mesagges, err := q.ch.Consume(
 		q.name,
-		"",    // consumer
-		false, // auto-ack
-		false, // exclusive
-		false, // no-local
-		false, // no-wait
-		nil,   // args
+		q.name, // consumer
+		false,  // auto-ack
+		false,  // exclusive
+		false,  // no-local
+		false,  // no-wait
+		nil,    // args
 	)
 	if err != nil {
+		if q.conn != nil {
+			q.conn.Close()
+		}
 		return m.ErrMessageMiddlewareDisconnected
 	}
 	for message := range mesagges {
@@ -86,8 +90,14 @@ func (q Queue) StartConsuming(callbackFunc func(msg m.Message, ack func(), nack 
 			},
 		)
 		if errComunication {
+			if q.conn != nil {
+				q.conn.Close()
+			}
 			return m.ErrMessageMiddlewareMessage
 		}
+	}
+	if q.conn.IsClosed() {
+		return m.ErrMessageMiddlewareDisconnected
 	}
 	return nil
 }
@@ -98,7 +108,9 @@ func (q Queue) StartConsuming(callbackFunc func(msg m.Message, ack func(), nack 
 func (q Queue) StopConsuming() error {
 	err := q.ch.Cancel(q.name, false)
 	if err != nil {
-		return m.ErrMessageMiddlewareDisconnected
+		if q.conn.IsClosed() {
+			return m.ErrMessageMiddlewareDisconnected
+		}
 	}
 	return nil
 }
@@ -117,7 +129,10 @@ func (q Queue) Send(msg m.Message) (err error) {
 			Body:        []byte(msg.Body),
 		})
 	if err != nil {
-		return m.ErrMessageMiddlewareDisconnected
+		if q.conn.IsClosed() {
+			return m.ErrMessageMiddlewareDisconnected
+		}
+		return m.ErrMessageMiddlewareMessage
 	}
 	return nil
 }
@@ -125,12 +140,10 @@ func (q Queue) Send(msg m.Message) (err error) {
 // Se desconecta de la cola o exchange al que estaba conectado.
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareClose.
 func (q Queue) Close() error {
-	err := q.ch.Close()
-	if err != nil {
-		return m.ErrMessageMiddlewareClose
-	}
-	err = q.conn.Close()
-	if err != nil {
+	errChan := q.ch.Close()
+	errConn := q.conn.Close()
+
+	if errChan != nil || errConn != nil {
 		return m.ErrMessageMiddlewareClose
 	}
 	return nil
