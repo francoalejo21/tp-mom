@@ -96,7 +96,7 @@ func (q Queue) StartConsuming(callbackFunc func(msg m.Message, ack func(), nack 
 // no se estaba consumiendo de la cola/exchange, no tiene efecto, ni levanta
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
 func (q Queue) StopConsuming() error {
-	err := q.ch.Cancel(q.name, true)
+	err := q.ch.Cancel(q.name, false)
 	if err != nil {
 		return m.ErrMessageMiddlewareDisconnected
 	}
