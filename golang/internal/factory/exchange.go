@@ -2,6 +2,7 @@ package factory
 
 import (
 	"strconv"
+	"time"
 
 	m "github.com/7574-sistemas-distribuidos/tp-mom/golang/internal/middleware"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -13,6 +14,7 @@ type Exchange struct {
 	ch        *amqp.Channel
 	conn      *amqp.Connection
 	keys      []string
+	tag       string
 }
 
 func CreateExchange(exchangeName string, host string, port int, keys []string) (m.Middleware, error) {
@@ -59,7 +61,7 @@ func CreateExchange(exchangeName string, host string, port int, keys []string) (
 	if err != nil {
 		return nil, m.ErrMessageMiddlewareDisconnected
 	}
-	return Exchange{exchangeName, q.Name, ch, conn, keys}, nil
+	return &Exchange{name: exchangeName, queueName: q.Name, ch: ch, conn: conn, keys: keys}, nil
 }
 
 // Comienza a escuchar a la cola/exchange e invoca a callbackFunc tras
@@ -70,16 +72,18 @@ func CreateExchange(exchangeName string, host string, port int, keys []string) (
 // nack - Una función que hace NACK del mensaje recibido.
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareMessage.
-func (e Exchange) StartConsuming(callbackFunc func(msg m.Message, ack func(), nack func())) (err error) {
+func (e *Exchange) StartConsuming(callbackFunc func(msg m.Message, ack func(), nack func())) (err error) {
 
+	// genero un tag unico para identificar al consumidor
+	e.tag = strconv.FormatInt(time.Now().UnixNano(), 10)
 	mesagges, err := e.ch.Consume(
 		e.queueName,
-		e.queueName, // consumer
-		false,       // auto-ack
-		false,       // exclusive
-		false,       // no-local
-		false,       // no-wait
-		nil,         // args
+		e.tag, // consumer
+		false, // auto-ack
+		false, // exclusive
+		false, // no-local
+		false, // no-wait
+		nil,   // args
 	)
 	if err != nil {
 		return m.ErrMessageMiddlewareDisconnected
@@ -114,8 +118,8 @@ func (e Exchange) StartConsuming(callbackFunc func(msg m.Message, ack func(), na
 // Si se estaba consumiendo desde la cola/exchange, se detiene la escucha. Si
 // no se estaba consumiendo de la cola/exchange, no tiene efecto, ni levanta
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
-func (e Exchange) StopConsuming() error {
-	err := e.ch.Cancel(e.queueName, false)
+func (e *Exchange) StopConsuming() error {
+	err := e.ch.Cancel(e.tag, false)
 	if err != nil {
 		if e.conn.IsClosed() {
 			return m.ErrMessageMiddlewareDisconnected
@@ -127,7 +131,7 @@ func (e Exchange) StopConsuming() error {
 // Envía un mensaje a la cola o a los tópicos con el que se inicializó el exchange.
 // Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareMessage.
-func (e Exchange) Send(msg m.Message) (err error) {
+func (e *Exchange) Send(msg m.Message) (err error) {
 	for _, key := range e.keys {
 		err = e.ch.Publish(
 			e.name, // exchange
@@ -151,7 +155,7 @@ func (e Exchange) Send(msg m.Message) (err error) {
 
 // Se desconecta de la cola o exchange al que estaba conectado.
 // Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareClose.
-func (e Exchange) Close() error {
+func (e *Exchange) Close() error {
 	errChan := e.ch.Close()
 	errConn := e.conn.Close()
 
